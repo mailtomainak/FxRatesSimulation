@@ -42,7 +42,8 @@ namespace FxRatesSimulation
         public void Upsert(int id, decimal rate, long nowTicks, long staleTicks)
         {
             var rates = _rates;
-            if (rates.TryGetValue(id, out var existing) && nowTicks - existing.UpdatedTicks > staleTicks)
+            Quote existing;
+            if (rates.TryGetValue(id, out existing) && nowTicks - existing.UpdatedTicks > staleTicks)
             {
                 rates.Remove(id);
                 rates.Add(id, new Quote { Rate = rate, UpdatedTicks = nowTicks });
@@ -51,12 +52,21 @@ namespace FxRatesSimulation
             rates[id] = new Quote { Rate = rate, UpdatedTicks = nowTicks };
         }
 
-        public bool TryGet(int id, out Quote quote) => _rates.TryGetValue(id, out quote);
+        public bool TryGet(int id, out Quote quote)
+        {
+            return _rates.TryGetValue(id, out quote);
+        }
 
 
-        public void Rebuild() => _rates = new Dictionary<int, Quote>();
+        public void Rebuild()
+        {
+            _rates = new Dictionary<int, Quote>();
+        }
 
-        public int Count => _rates.Count;
+        public int Count
+        {
+            get { return _rates.Count; }
+        }
     }
 
 
@@ -84,21 +94,20 @@ namespace FxRatesSimulation
             for (int i = 0; i < args.Length; i++)
             {
                 string a = args[i].ToLowerInvariant();
-                string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"Missing value for {a}");
                 switch (a)
                 {
-                    case "--mode": o.Mode = Next().ToLowerInvariant(); break;
-                    case "--writers": o.Writers = int.Parse(Next()); break;
-                    case "--readers": o.Readers = int.Parse(Next()); break;
-                    case "--write-rate": o.WriteRate = int.Parse(Next()); break;
-                    case "--read-rate": o.ReadRate = int.Parse(Next()); break;
-                    case "--countries": o.Countries = int.Parse(Next()); break;
+                    case "--mode": o.Mode = NextValue(args, ref i, a).ToLowerInvariant(); break;
+                    case "--writers": o.Writers = int.Parse(NextValue(args, ref i, a)); break;
+                    case "--readers": o.Readers = int.Parse(NextValue(args, ref i, a)); break;
+                    case "--write-rate": o.WriteRate = int.Parse(NextValue(args, ref i, a)); break;
+                    case "--read-rate": o.ReadRate = int.Parse(NextValue(args, ref i, a)); break;
+                    case "--countries": o.Countries = int.Parse(NextValue(args, ref i, a)); break;
                     case "--burst": o.Burst = true; break;
-                    case "--burst-interval": o.BurstIntervalMs = int.Parse(Next()); break;
-                    case "--burst-length": o.BurstLengthMs = int.Parse(Next()); break;
-                    case "--stale-ms": o.StaleMs = int.Parse(Next()); break;
-                    case "--duration": o.DurationSeconds = int.Parse(Next()); break;
-                    case "--stall-seconds": o.StallSeconds = int.Parse(Next()); break;
+                    case "--burst-interval": o.BurstIntervalMs = int.Parse(NextValue(args, ref i, a)); break;
+                    case "--burst-length": o.BurstLengthMs = int.Parse(NextValue(args, ref i, a)); break;
+                    case "--stale-ms": o.StaleMs = int.Parse(NextValue(args, ref i, a)); break;
+                    case "--duration": o.DurationSeconds = int.Parse(NextValue(args, ref i, a)); break;
+                    case "--stall-seconds": o.StallSeconds = int.Parse(NextValue(args, ref i, a)); break;
                     case "--wait-for-debugger": o.WaitForDebugger = true; break;
                     case "--no-wait": o.NoWait = true; break;
                     case "-h":
@@ -107,12 +116,20 @@ namespace FxRatesSimulation
                         PrintHelp();
                         Environment.Exit(0);
                         break;
-                    default: throw new ArgumentException($"Unknown argument: {args[i]}");
+                    default: throw new ArgumentException("Unknown argument: " + args[i]);
                 }
             }
             if (o.Mode != "unsafe" && o.Mode != "locked" && o.Mode != "concurrent")
                 throw new ArgumentException("--mode must be unsafe, locked or concurrent");
             return o;
+        }
+
+        // Returns the value that follows the current switch and advances the index past it.
+        private static string NextValue(string[] args, ref int i, string name)
+        {
+            if (i + 1 >= args.Length)
+                throw new ArgumentException("Missing value for " + name);
+            return args[++i];
         }
 
         public static void PrintHelp()
@@ -149,7 +166,10 @@ Examples:
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private long _done;
 
-        public Pacer(int perSecond) => _perSecond = perSecond;
+        public Pacer(int perSecond)
+        {
+            _perSecond = perSecond;
+        }
 
         public void Tick(bool flood)
         {
@@ -195,16 +215,17 @@ Examples:
                 return 2;
             }
 
-            _store =  new UnsafeRateStore();
+            _store = new UnsafeRateStore();
 
             int pid = Process.GetCurrentProcess().Id;
-            Console.WriteLine($"FxRateCache  runtime={RuntimeInformation.FrameworkDescription}  pid={pid}");
-            Console.WriteLine($"mode={_opt.Mode} writers={_opt.Writers} readers={_opt.Readers} countries={_opt.Countries} " +
-                              $"burst={_opt.Burst} staleMs={_opt.StaleMs} duration={_opt.DurationSeconds}s cores={Environment.ProcessorCount}");
+            Console.WriteLine("FxRateCache  runtime={0}  pid={1}", RuntimeInformation.FrameworkDescription, pid);
+            Console.WriteLine("mode={0} writers={1} readers={2} countries={3} burst={4} staleMs={5} duration={6}s cores={7}",
+                              _opt.Mode, _opt.Writers, _opt.Readers, _opt.Countries,
+                              _opt.Burst, _opt.StaleMs, _opt.DurationSeconds, Environment.ProcessorCount);
 
             if (_opt.WaitForDebugger)
             {
-                Console.WriteLine($"Attach your debugger to PID {pid}, then press Enter to start the load...");
+                Console.WriteLine("Attach your debugger to PID {0}, then press Enter to start the load...", pid);
                 Console.ReadLine();
             }
 
@@ -222,13 +243,13 @@ Examples:
             for (int i = 0; i < _opt.Writers; i++)
             {
                 int slot = i;
-                _names[slot] = $"FeedWriter-{i}";
+                _names[slot] = "FeedWriter-" + i;
                 threads.Add(new Thread(() => WriterLoop(slot)) { IsBackground = true, Name = _names[slot] });
             }
             for (int i = 0; i < _opt.Readers; i++)
             {
                 int slot = _opt.Writers + i;
-                _names[slot] = $"PricingReader-{i}";
+                _names[slot] = "PricingReader-" + i;
                 threads.Add(new Thread(() => ReaderLoop(slot)) { IsBackground = true, Name = _names[slot] });
             }
             if (_opt.Burst)
@@ -242,8 +263,8 @@ Examples:
             if (hung && !_opt.NoWait)
             {
                 Console.WriteLine();
-                Console.WriteLine($"Threads are still spinning. Process {pid} is kept alive so you can capture it:");
-                Console.WriteLine($"  procdump -ma {pid} fxratecache.dmp      (or attach WinDbg: windbg -p {pid})");
+                Console.WriteLine("Threads are still spinning. Process {0} is kept alive so you can capture it:", pid);
+                Console.WriteLine("  procdump -ma {0} fxratecache.dmp      (or attach WinDbg: windbg -p {0})", pid);
                 Console.WriteLine("Press Enter to exit.");
                 Console.ReadLine();
             }
@@ -299,9 +320,10 @@ Examples:
                 try
                 {
                     int country = rnd.Next(1, _opt.Countries + 1);
-                    if (_store.TryGet(country, out var q) && q != null)
+                    Quote q;
+                    if (_store.TryGet(country, out q) && q != null)
                         checksum += q.Rate * 1.0001m; // "price" something with the rate
-                    if (checksum > 1_000_000m) checksum = 0;
+                    if (checksum > 1000000m) checksum = 0;
                 }
                 catch (Exception ex)
                 {
@@ -327,7 +349,7 @@ Examples:
         private static void RecordError(Exception ex)
         {
             if (Interlocked.Increment(ref _errors) == 1)
-                _firstError = $"{ex.GetType().Name}: {ex.Message}";
+                _firstError = ex.GetType().Name + ": " + ex.Message;
         }
 
         // Prints a status line every second and reports threads that stop making progress.
@@ -385,14 +407,16 @@ Examples:
                 }
 
                 long errors = Interlocked.Read(ref _errors);
-                Console.WriteLine($"[{(now - start).TotalSeconds,5:0}s] cpu={cpuPct,5:0.0}%  writes/s={writerOps,9:N0}  reads/s={readerOps,9:N0}  " +
-                                  $"entries={SafeCount(),6}  errors={errors,6}  hung={hungCount}/{total}{(_burstActive ? "  [BURST]" : "")}");
+                Console.WriteLine("[{0,5:0}s] cpu={1,5:0.0}%  writes/s={2,9:N0}  reads/s={3,9:N0}  entries={4,6}  errors={5,6}  hung={6}/{7}{8}",
+                                  (now - start).TotalSeconds, cpuPct, writerOps, readerOps,
+                                  SafeCount(), errors, hungCount, total,
+                                  _burstActive ? "  [BURST]" : "");
 
                 if (errors > 0 && !firstErrorShown)
                 {
                     firstErrorShown = true;
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"  first error: {_firstError}");
+                    Console.WriteLine("  first error: " + _firstError);
                     Console.ResetColor();
                 }
 
@@ -401,12 +425,12 @@ Examples:
                     const int shown = 4;
                     var sample = new List<string>();
                     for (int k = 0; k < newlyHung.Count && k < shown; k++)
-                        sample.Add($"{_names[newlyHung[k]]} (tid 0x{_osThreadIds[newlyHung[k]]:x})");
-                    string more = newlyHung.Count > shown ? $" +{newlyHung.Count - shown} more" : "";
+                        sample.Add(string.Format("{0} (tid 0x{1:x})", _names[newlyHung[k]], _osThreadIds[newlyHung[k]]));
+                    string more = newlyHung.Count > shown ? " +" + (newlyHung.Count - shown) + " more" : "";
                     Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"  !! {newlyHung.Count} thread(s) made no progress for {_opt.StallSeconds}s but CPU is busy - likely spinning: " +
-                                      $"{string.Join(", ", sample)}{more}");
-                    Console.WriteLine($"  !! Capture now: procdump -ma {pid}");
+                    Console.WriteLine("  !! {0} thread(s) made no progress for {1}s but CPU is busy - likely spinning: {2}{3}",
+                                      newlyHung.Count, _opt.StallSeconds, string.Join(", ", sample), more);
+                    Console.WriteLine("  !! Capture now: procdump -ma {0}", pid);
                     Console.ResetColor();
                 }
             }
